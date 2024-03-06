@@ -176,18 +176,88 @@ interface DatabaseDao {
 
     @Transaction
     @Query(
+"""
+                SELECT
+                    song.*
+                FROM
+                    (
+                        SELECT
+                            n.songId AS eid,
+                            SUM(playTime) AS oldPlayTime,
+                            newPlayTime
+                        FROM
+                            event
+                        JOIN
+                            (
+                              SELECT
+                                songId,
+                                SUM(playTime) AS newPlayTime
+                              FROM
+                                event
+                            WHERE
+                                timestamp > (:now - 86400000 * 30 * 1)
+                              GROUP BY
+                                songId
+                              ORDER BY
+                               newPlayTime
+                            ) as n
+                        ON event.songId = n.songId
+                        WHERE
+                            timestamp < (:now - 86400000 * 30 * 1)
+                        GROUP BY
+                            n.songId
+                        ORDER BY
+                            oldPlayTime
+                    ) AS t
+                JOIN song on song.id = t.eid
+                WHERE 0.2 * t.oldPlayTime > t.newPlayTime
+                LIMIT 100
+
         """
-        SELECT *
+    )
+    fun forgottenFavorites(now: Long = System.currentTimeMillis()) : Flow<List<Song>>
+
+    @Transaction
+    @Query(
+    """
+        SELECT
+            song.*
+        FROM
+            event
+        JOIN
+            song ON event.songId = song.id
+        WHERE
+            event.timestamp > (:now - 86400000 * 7 * 2)
+        GROUP BY
+            song.albumId
+        HAVING
+            song.albumId IS NOT NULL
+        ORDER BY
+            sum(event.playTime) DESC
+        LIMIT :limit
+        OFFSET :offset
+        
+        """
+    )
+    fun getRecommendationAlbum(now: Long = System.currentTimeMillis(), limit: Int = 5, offset: Int = 0) : Flow<List<Song>>
+
+    @Transaction
+    @Query(
+        """
+        SELECT song.*
         FROM song
-        WHERE id IN (SELECT songId
+        JOIN (SELECT songId
                      FROM event
                      WHERE timestamp > :fromTimeStamp
                      GROUP BY songId
                      ORDER BY SUM(playTime) DESC
                      LIMIT :limit)
+        ON song.id = songId
+        LIMIT :limit
+        OFFSET :offset
     """
     )
-    fun mostPlayedSongs(fromTimeStamp: Long, limit: Int = 6): Flow<List<Song>>
+    fun mostPlayedSongs(fromTimeStamp: Long, limit: Int = 6, offset: Int = 0): Flow<List<Song>>
 
     @Transaction
     @Query(
@@ -195,9 +265,9 @@ interface DatabaseDao {
         SELECT artist.*,
                (SELECT COUNT(1)
                 FROM song_artist_map
-                         JOIN song ON song_artist_map.songId = song.id
+                         JOIN event ON song_artist_map.songId = event.songId
                 WHERE artistId = artist.id
-                  AND song.inLibrary IS NOT NULL) AS songCount
+                  AND timestamp > :fromTimeStamp) AS songCount
         FROM artist
                  JOIN(SELECT artistId, SUM(songTotalPlayTime) AS totalPlayTime
                       FROM song_artist_map
@@ -208,11 +278,12 @@ interface DatabaseDao {
                                     ON song_artist_map.songId = e.songId
                       GROUP BY artistId
                       ORDER BY totalPlayTime DESC
-                      LIMIT :limit)
+                      LIMIT :limit
+                      OFFSET :offset)
                      ON artist.id = artistId
     """
     )
-    fun mostPlayedArtists(fromTimeStamp: Long, limit: Int = 6): Flow<List<Artist>>
+    fun mostPlayedArtists(fromTimeStamp: Long, limit: Int = 6, offset: Int = 0): Flow<List<Artist>>
 
     @Transaction
     @Query(
