@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Decode google-services.json
+        run: echo ${{ secrets.GOOGLE_SERVICES }} | base64 -d >> app/google-services.json
+
       - name: Decode Keystore
         run: echo ${{ secrets.KEYSTORE }} | base64 -d >> app/music-debug.jks
 
@@ -39,4 +42,4 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: app
-          path: app/build/outputs/apk/foss/debug/*.apk
+          path: app/build/outputs/apk/full/debug/*.apk
